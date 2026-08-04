@@ -1,56 +1,53 @@
-# compiled output
-/dist
-/node_modules
-/build
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+*.tsbuildinfo
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
-pnpm-debug.log*
 yarn-debug.log*
-yarn-error.log*
+pnpm-debug.log*
 lerna-debug.log*
 
-# OS
-.DS_Store
+# Coverage
+coverage/
+.nyc_output/
 
-# Tests
-/coverage
-/.nyc_output
+# Environment
+.env
+.env.*
+!.env.example
 
-# IDEs and editors
-/.idea
+# IDE
+.vscode/
+.idea/
 .project
 .classpath
-.c9/
-*.launch
 .settings/
-*.sublime-workspace
 
-# IDE - VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+# macOS
+.DS_Store
 
-# dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+# Temporary Files
+.temp/
+.tmp/
 
-# temp directory
-.temp
-.tmp
-
-# Runtime data
-pids
+# Runtime Data
+pids/
 *.pid
-*.seed
 *.pid.lock
+*.seed
 
-# Diagnostic reports (https://nodejs.org/api/report.html)
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+# Diagnostic Reports
+report.*.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
