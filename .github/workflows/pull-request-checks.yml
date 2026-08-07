@@ -8,12 +8,17 @@ on:
 
 jobs:
   checks:
-    name: Build, Type Check and Lint
+    name: Build, Type Check, Lint and Tests
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -21,22 +26,20 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Type Check
         run: pnpm typecheck
 
-      - name: Lint
-        run: pnpm lint
+      - name: Format Check
+        run: pnpm format:check
 
-      - name: Build
-        run: pnpm build
+      - name: Lint
+        run: pnpm lint:check
 
       - name: Test
         run: pnpm test
+
+      - name: Build
+        run: pnpm build
