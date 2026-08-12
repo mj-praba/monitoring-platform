@@ -42,7 +42,7 @@ jobs:
           docker build \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
             -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-            .
+            backend
 
       - name: Push Docker image to ECR
         env:

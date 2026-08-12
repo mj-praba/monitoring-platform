@@ -3,9 +3,11 @@ import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import { getRepositoryToken } from "@nestjs/typeorm";
+import { WINSTON_MODULE_NEST_PROVIDER } from "nest-winston";
 import type { Repository } from "typeorm";
 import { AppModule } from "./app.module";
 import { TokenService } from "./auth/token.service";
+import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { AppConfig } from "./config/configuration";
 import { Device } from "./entities/device.entity";
 import { MongoService } from "./mongo/mongo.service";
@@ -15,6 +17,9 @@ import { attachWebSocketServer } from "./ws/ws.server";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService<AppConfig, true>);
+
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
+  app.useGlobalFilters(new HttpExceptionFilter());
 
   app.enableCors({
     origin: config.get("corsOrigins"),

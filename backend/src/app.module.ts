@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AuthModule } from "./auth/auth.module";
+import { LoggerModule } from "./common/logger/logger.module";
 import { normalizePostgresUrl } from "./common/postgres-url.util";
 import configuration, { AppConfig } from "./config/configuration";
 import { DevicesModule } from "./devices/devices.module";
@@ -12,6 +13,7 @@ import { RedisModule } from "./redis/redis.module";
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration], envFilePath: ".env" }),
+    LoggerModule,
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<AppConfig, true>) => ({

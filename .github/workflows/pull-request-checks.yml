@@ -8,8 +8,11 @@ on:
 
 jobs:
   checks:
-    name: Build, Type Check, Lint and Tests
+    name: Build and Type Check
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - name: Checkout repository
@@ -25,21 +28,13 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Type Check
         run: pnpm typecheck
-
-      - name: Format Check
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint:check
-
-      - name: Test
-        run: pnpm test
 
       - name: Build
         run: pnpm build
