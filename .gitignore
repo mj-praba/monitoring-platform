@@ -4,6 +4,7 @@ node_modules/
 # Build
 dist/
 build/
+frontend/dist/
 *.tsbuildinfo
 
 # Logs
@@ -22,6 +23,15 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Expo
+mobile/.expo/
+mobile/.expo-shared/
+mobile/*.jks
+mobile/*.p8
+mobile/*.p12
+mobile/*.key
+mobile/*.mobileprovision
 
 # IDE
 .vscode/

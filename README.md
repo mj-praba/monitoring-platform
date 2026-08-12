@@ -1,99 +1,138 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# monitoring-platform
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A full-stack SaaS app for monitoring Android devices in real time:
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+- **`backend/`** - NestJS (TypeScript), TypeORM (Postgres) + native `mongodb` driver (MongoDB)
+  + `ioredis` pub/sub, a raw `ws` WebSocket server
+- **`frontend/`** - React + Vite + TypeScript web dashboard (the SaaS app)
+- **`mobile/`** - Expo / React Native app that pairs with the dashboard and streams device stats
+- **`scripts/simulate-device.js`** - a fake "phone" for testing the pipeline without hardware
 
-## Description
+Backend, frontend, and mobile all use **pnpm** (not npm/yarn) - install it with
+`npm install -g pnpm` or `corepack enable` if you don't have it.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## How it works
 
-## Project setup
+1. On the dashboard, click **Connect Device**. The backend creates a short-lived pairing
+   code and the dashboard shows it as a QR code (`POST /api/devices/pair/start`).
+2. On the phone, open the app and scan that QR (or type the 6-digit code). The app calls
+   `POST /api/devices/pair/claim`, which creates a `Device` row and returns a device-scoped
+   JWT.
+3. While the app is in the **foreground**, it opens `WS /ws/device/{device_id}` and sends a
+   metrics sample (battery, total RAM, disk free/total, CPU) every ~2 seconds. Backgrounding
+   or closing the app closes the socket immediately - no more data leaves the device.
+4. The backend publishes every incoming sample to a Redis channel (`device:{id}:metrics`)
+   and archives it in MongoDB (`device_metrics` collection).
+5. The dashboard's Monitor page opens `WS /ws/dashboard/{device_id}`, which subscribes to
+   that same Redis channel and forwards messages straight to the browser - live stat cards
+   update in real time.
 
-```bash
-$ npm install
-```
+Postgres holds structured app state (users, devices, pairing sessions). MongoDB holds the
+metrics event stream. Redis is purely a pub/sub fan-out layer between the device socket and
+any dashboard sockets watching that device.
 
-## Compile and run the project
+## Quickstart
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
+### 1. Infra
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+docker compose up -d postgres mongo redis
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 2. Backend
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+cd backend
+pnpm install
+cp ../.env.example .env   # then trim it down to just the backend section
+pnpm dev
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Runs on http://localhost:8000 (`/api/health` for a quick check). Tables are created
+automatically on startup (TypeORM `synchronize: true`) - no separate migration step needed.
 
-## Resources
+### 3. Frontend
 
-Check out a few resources that may come in handy when working with NestJS:
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Runs on http://localhost:5173. Register an account, then click **Connect Device**.
 
-## Support
+### 4. Pair a device
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+**Real phone:** run the Expo app (see below) and scan the QR shown by the dashboard.
 
-## Stay in touch
+**No phone handy?** Simulate one (pure Node.js, no dependencies - needs Node 22+ for native `fetch`/`WebSocket`):
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+```bash
+node scripts/simulate-device.js --code 123456   # the code shown on the dashboard
+```
 
-## License
+The dashboard's Monitor page will start updating live, and the "Sending data" badge will
+light up.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-# monitoring-app-backend
+### 5. Mobile app (Expo)
+
+```bash
+cd mobile
+pnpm install
+pnpm start
+```
+
+Scan the Metro QR with Expo Go on an Android phone.
+
+## What the mobile app reports, and why nothing prompts for permission
+
+`mobile/src/services/deviceStats.ts` only reads things Android exposes to any app with
+**zero runtime permission dialogs**:
+
+| Field | Source | Real or estimate |
+| --- | --- | --- |
+| `battery_level`, `battery_state` | `expo-battery` | Real |
+| `total_memory_mb` | `expo-device` (`Device.totalMemory`) | Real (total device RAM) |
+| `free_disk_mb`, `total_disk_mb` | `expo-file-system` (`getFreeDiskStorageAsync`/`getTotalDiskCapacityAsync`) | Real, and changes live as the phone's storage fills/frees |
+| `device_model`, `os_version` | `expo-device` | Real, static |
+| `cpu_load_estimate_percent` | measured `setTimeout` overshoot (JS-thread lag) | **Estimate** - see below |
+
+There's no cross-platform, permission-free way to read true system-wide CPU utilization
+or currently-used RAM on modern Android without root - that's an OS restriction, not
+something a different library works around. `cpu_load_estimate_percent` is a genuine
+measurement (how late a short timer fires, i.e. how busy the JS thread is), not random
+noise, but treat it as a load *proxy* rather than a real CPU percentage.
+
+## Project layout
+
+```
+backend/src/
+  main.ts                     bootstrap, CORS, ValidationPipe, attaches the raw WS server
+  app.module.ts                wires Postgres/Mongo/Redis + feature modules
+  config/configuration.ts      env-driven config (DB URLs, JWT secret, CORS origins)
+  entities/                    TypeORM: User, Device, PairingSession
+  auth/                        register/login, JWT create/verify, guard
+  devices/                     pairing start/status/claim + device list/get endpoints
+  mongo/mongo.service.ts       native `mongodb` driver connection + device_metrics collection
+  redis/redis.service.ts       ioredis publisher + per-connection subscriber factory
+  ws/ws.server.ts               raw `ws` server attached to Nest's HTTP server, routing
+                                /ws/device/{id} and /ws/dashboard/{id} by URL
+
+frontend/src/
+  api/client.ts                REST client + token storage
+  hooks/useDashboardSocket.ts  dashboard WebSocket hook
+  pages/Login.tsx, Devices.tsx, ConnectDevice.tsx, Monitor.tsx
+
+mobile/src/
+  services/api.ts, deviceStats.ts, socket.ts
+  screens/ScanScreen.tsx, MonitorScreen.tsx
+```
+
+## Known MVP shortcuts (documented on purpose)
+
+- **No migration tool** - tables are created with TypeORM's `synchronize: true` on startup.
+  Switch to real migrations (`typeorm migration:generate`) before this schema needs to
+  evolve in production.
+- **CPU is a JS-thread-load proxy, not a real percentage** - see the table above.
+- **Single Redis pub/sub connection per dashboard socket** - fine for local dev; production
+  would want connection pooling and reconnect/backoff on both device and dashboard sockets.

@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "monitoring-platform",
+    "slug": "monitoring-platform",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "android": {
+      "package": "com.monitoringplatform.app",
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan the pairing QR code."
+        }
+      ]
+    ]
+  }
+}
