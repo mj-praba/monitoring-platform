@@ -16,9 +16,12 @@ A full-stack SaaS app for monitoring Android devices in real time:
   - `packages/common` - shared types, constants, config loading, logging.
 - **`frontend/`** - React + Vite + TypeScript web dashboard (the SaaS app)
 - **`mobile/`** - Expo / React Native app that pairs with the dashboard and streams device stats
+- **`desktop/`** - Electron + React + TypeScript app that observes the *local machine's* system
+  metrics (CPU, memory, disk, load average, uptime, network) - unrelated to the mobile
+  device-monitoring pipeline above; standalone boilerplate, see `desktop/README.md`.
 - **`scripts/simulate-device.js`** - a fake "phone" for testing the pipeline without hardware
 
-Backend, frontend, and mobile all use **pnpm** (not npm/yarn) - install it with
+Backend, frontend, mobile, and desktop all use **pnpm** (not npm/yarn) - install it with
 `npm install -g pnpm` or `corepack enable` if you don't have it.
 
 > **Frontend/mobile compatibility note:** the backend's pairing/auth API contract changed as
@@ -118,6 +121,18 @@ pnpm start
 
 Scan the Metro QR with Expo Go on an Android phone.
 
+### 6. Desktop app (optional, standalone)
+
+```bash
+cd desktop
+pnpm install
+pnpm dev
+```
+
+Opens an Electron window showing live CPU/memory/disk/load/uptime/OS/network metrics for the
+*local machine* it runs on. Doesn't talk to the backend/frontend/mobile pipeline above - see
+`desktop/README.md` for the architecture and data sources.
+
 ## What the mobile app reports, and why nothing prompts for permission
 
 `mobile/src/services/deviceStats.ts` only reads things Android exposes to any app with
@@ -161,6 +176,15 @@ frontend/src/
 mobile/src/
   services/api.ts, deviceStats.ts, socket.ts
   screens/ScanScreen.tsx, MonitorScreen.tsx
+```
+
+```
+desktop/src/
+  shared/                        IPC channel constants + types shared by main/preload/renderer
+  main/metrics/                  one MetricCollector per domain (cpu/memory/disk/...), SystemMetricsService, MetricsPoller
+  main/ipc/metrics.ipc.ts         wires the poller to ipcMain/webContents
+  preload/index.ts                 contextBridge-exposed, typed window.metricsApi
+  renderer/src/                     React dashboard: useSystemMetrics hook + one panel per metric domain
 ```
 
 ## Known MVP shortcuts (documented on purpose)

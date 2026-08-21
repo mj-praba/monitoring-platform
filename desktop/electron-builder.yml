@@ -1,0 +1,12 @@
+appId: com.monitoringplatform.desktop
+productName: System Monitor
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+linux:
+  target:
+    - AppImage
+  category: Utility
