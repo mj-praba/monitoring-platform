@@ -1,0 +1,106 @@
+asyncapi: 2.6.0
+info:
+  title: Monitoring Platform Realtime API
+  version: 1.0.0
+  description: >
+    Real-time WebSocket channels served by apps/websocket — the
+    consistency-oriented path: a metrics sample published here is
+    delivered to a connected dashboard immediately, nothing buffered in
+    between. Durable storage happens separately and asynchronously in
+    apps/workers/ingestion-worker. Compare with apps/api's REST API
+    (Swagger at /api/docs), which is the availability-oriented read path.
+    Render this file with: npx @asyncapi/cli studio apps/websocket/asyncapi.yaml
+
+servers:
+  local:
+    url: ws://localhost:{port}
+    protocol: ws
+    variables:
+      port:
+        default: "8002"
+
+channels:
+  /ws/device/{deviceId}:
+    parameters:
+      deviceId:
+        schema:
+          type: string
+    bindings:
+      ws:
+        query:
+          type: object
+          properties:
+            token:
+              type: string
+              description: Device-scoped JWT (scope=device), issued at pairing claim time.
+    subscribe:
+      summary: A device streams its own metrics samples to the server.
+      operationId: receiveDeviceMetrics
+      message:
+        $ref: "#/components/messages/DeviceMetrics"
+
+  /ws/dashboard/{deviceId}:
+    parameters:
+      deviceId:
+        schema:
+          type: string
+    bindings:
+      ws:
+        query:
+          type: object
+          properties:
+            token:
+              type: string
+              description: >
+                User-scoped JWT (scope=user). Connection is rejected (403)
+                unless the caller owns the device or holds devices:read at
+                the device's location, workspace, or tenant scope.
+    publish:
+      summary: The server pushes live metrics for one device to a connected dashboard.
+      operationId: sendDeviceMetrics
+      message:
+        $ref: "#/components/messages/DeviceMetrics"
+
+components:
+  messages:
+    DeviceMetrics:
+      name: DeviceMetrics
+      title: Device metrics sample
+      payload:
+        $ref: "#/components/schemas/DeviceMetricsPayload"
+  schemas:
+    DeviceMetricsPayload:
+      type: object
+      properties:
+        device_id:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        battery_level:
+          type: number
+          nullable: true
+        battery_state:
+          type: string
+          nullable: true
+        total_memory_mb:
+          type: number
+          nullable: true
+        free_disk_mb:
+          type: number
+          nullable: true
+        total_disk_mb:
+          type: number
+          nullable: true
+        cpu_load_estimate_percent:
+          type: number
+          nullable: true
+        device_model:
+          type: string
+          nullable: true
+        os_version:
+          type: string
+          nullable: true
+        ts:
+          type: string
+          nullable: true
