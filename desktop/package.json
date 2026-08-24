@@ -11,7 +11,8 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "lint": "eslint .",
-    "build:linux": "pnpm run build && electron-builder --linux"
+    "build:linux": "pnpm run build && electron-builder --linux",
+    "build:win": "pnpm run build && electron-builder --win"
   },
   "dependencies": {
     "react": "^18.3.1",

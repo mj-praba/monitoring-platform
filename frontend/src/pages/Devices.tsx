@@ -23,6 +23,9 @@ export function Devices() {
       <header className="page-header">
         <h1>Devices</h1>
         <div>
+          <Link to="/docs">
+            <button className="link">Docs</button>
+          </Link>
           <Link to="/devices/connect">
             <button>+ Connect Device</button>
           </Link>
