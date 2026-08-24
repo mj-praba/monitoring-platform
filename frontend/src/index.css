@@ -76,10 +76,11 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px;
 }
 
 .auth-card {
-  width: 320px;
+  width: min(320px, 100%);
   display: flex;
   flex-direction: column;
 }
@@ -92,9 +93,18 @@ input {
 
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 24px;
+}
+
+.page-header > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 .device-grid {
