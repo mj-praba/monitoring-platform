@@ -108,7 +108,7 @@ topic/partition, not a lightweight per-consumer filter the way a Redis channel i
 per-device topic count doesn't scale operationally. Keying one shared topic by device id gets the
 ordering guarantee without that cost; the dashboard side pays for it instead with "every instance
 consumes 100% of the topic's volume" — documented as a known trade-off, not a bug, in the root
-README's "Known MVP shortcuts" and `backend/apps/websocket/README.md`.
+README's "Current state" section and `backend/apps/websocket/README.md`.
 
 ## Deployment
 
@@ -125,7 +125,7 @@ README's "Known MVP shortcuts" and `backend/apps/websocket/README.md`.
 
 ## Known trade-offs (by design, not oversights)
 
-See the root README's "Known MVP shortcuts" section for the full list (CPU-as-JS-thread-proxy on
+See the root README's "Current state" section for the full list (CPU-as-JS-thread-proxy on
 mobile, scoped RBAC's "initial impl" boundary, Redis/ClickHouse wired-but-unused, the
 one-consumer-per-instance Kafka fan-out cost). This document explains the *why* behind each; the
 README keeps the summary.

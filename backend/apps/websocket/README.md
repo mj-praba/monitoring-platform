@@ -40,7 +40,7 @@ topic, so every horizontally-scaled `apps/websocket` instance sees every device'
 load-balancing partitions across instances the way `apps/workers/ingestion-worker`'s single
 shared group does. The trade-off: every instance consumes 100% of the topic's volume regardless
 of local viewer count — the same "broadcast to all subscribers" cost Redis pub/sub already had,
-not a new regression. See the root README's "Known MVP shortcuts".
+not a new regression. See the root README's "Current state" section.
 
 ## Why it needs Postgres
 

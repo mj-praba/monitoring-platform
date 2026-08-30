@@ -1,223 +1,131 @@
 # monitoring-platform
 
-A full-stack SaaS app for monitoring Android devices in real time:
+A full-stack, real-time device-monitoring platform: a React web dashboard, an Expo mobile app,
+and a four-process backend built around Kafka-driven live delivery, JWT + scoped RBAC, and a
+Postgres/MongoDB/Kafka/ClickHouse data layer — plus a fifth, unrelated Electron app shipped
+through its own CI-built installer pipeline.
 
-- **`backend/`** - a small monorepo of its own (`apps/` + `packages/`, one root `package.json`):
-  - `apps/api` (NestJS) - REST API: auth (JWT access + refresh tokens), users, tenants,
-    workspaces, locations, devices. Swagger at `/api/docs`.
-  - `apps/websocket` (plain TypeScript, no Nest) - the real-time WS layer: device-ingest and
-    dashboard-subscribe sockets. AsyncAPI spec at `apps/websocket/asyncapi.yaml`.
-  - `apps/workers/ingestion-worker` (plain TypeScript) - persists live metrics into MongoDB.
-  - `apps/workers/cron-worker` (plain TypeScript) - expires stale pairing sessions, marks
-    stale devices offline.
-  - `packages/database` - Postgres (TypeORM, migrations) / MongoDB / Redis / Kafka / ClickHouse,
-    one sub-module each.
-  - `packages/auth` - JWT + scoped RBAC (tenant -> workspace -> location, roles/permissions).
-  - `packages/common` - shared types, constants, config loading, logging.
-- **`frontend/`** - React + Vite + TypeScript web dashboard (the SaaS app)
-- **`mobile/`** - Expo / React Native app that pairs with the dashboard and streams device stats
-- **`desktop/`** - Electron + React + TypeScript app that observes the *local machine's* system
-  metrics (CPU, memory, disk, load average, uptime, network) - unrelated to the mobile
-  device-monitoring pipeline above; standalone boilerplate, see `desktop/README.md`.
-- **`scripts/simulate-device.js`** - a fake "phone" for testing the pipeline without hardware
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-149ECA?style=flat&logo=react&logoColor=white)](https://react.dev/)
+[![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=flat&logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![Kafka](https://img.shields.io/badge/Kafka-231F20?style=flat&logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+[![AWS ECS](https://img.shields.io/badge/AWS%20ECS-FF9900?style=flat&logo=amazonecs&logoColor=white)](https://aws.amazon.com/ecs/)
+[![Expo](https://img.shields.io/badge/Expo-000020?style=flat&logo=expo&logoColor=white)](https://expo.dev/)
+[![Electron](https://img.shields.io/badge/Electron-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
 
-Backend, frontend, mobile, and desktop all use **pnpm** (not npm/yarn) - install it with
-`npm install -g pnpm` or `corepack enable` if you don't have it.
+## What it is
 
-## Docs
+A SaaS product for organizations that need to monitor a fleet of Android devices — kiosks,
+handheld scanners, point-of-sale phones — across multiple sites. An admin creates an account,
+which provisions a tenant with a workspace/location hierarchy; from the dashboard they generate a
+QR pairing code scoped to a location, a phone scans it, and that device starts streaming live
+battery/memory/disk/CPU stats to a Monitor page in real time. Role-based access controls who can
+see or manage which devices, at which sites, across the organization.
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - deeper technical reference: component roles,
-  data-store responsibilities, the auth/RBAC model, the pairing flow, and the live-metrics
-  pipeline's Kafka topic/consumer-group design end to end.
-- [`docs/architecture.html`](docs/architecture.html) - the same system, rendered as a visual
-  diagram (open it directly in a browser).
-- `backend/README.md` and each `apps/*`/`packages/*` directory's own `README.md` - implementation
-  detail for that specific piece.
+## Why it's worth a look
 
-> **Frontend/mobile compatibility note:** the backend's pairing/auth API contract changed as
-> part of the `apps`/`packages` restructure (see `backend/README.md` for the full picture):
-> `POST /api/devices/pair/start` now requires an authenticated caller and a `locationId` body
-> field; login/register now also return a `refresh_token`; the WebSocket server moved to its
-> own process/port (`WS_PORT`, default `8002`, not the API's `8001`). `frontend/` and
-> `mobile/` were **not** updated as part of this change (backend-only scope) and will need
-> corresponding updates before pairing/streaming works against the new backend.
+- **Full-stack across four platforms** — a React web dashboard, an Expo/React Native mobile app,
+  a Nest + plain-TypeScript backend (its own four-process monorepo), and a standalone Electron
+  desktop app with its own auto-built, auto-released installers.
+- **A real event-streaming pipeline, not just CRUD** — device metrics flow through Kafka to two
+  consumer groups with *opposite* scaling semantics from the same topic: a shared group that
+  shards partitions across instances for durable writes (no two instances ever double-process the
+  same partition), and a per-process group that broadcasts a full copy of the stream for
+  in-memory dashboard fan-out. See the diagram below.
+- **A deliberate availability/consistency split** — live delivery to a dashboard never waits on a
+  database write, and that write never waits on live delivery either. Two independent paths to
+  the same data, on purpose.
+- **Real multi-tenant authorization** — JWT access + refresh tokens, and scoped RBAC that
+  cascades tenant → workspace → location, resolved fresh from Postgres on every request (never
+  cached in the token, so a permission change is instant).
+- **Actually deployed, not just runnable** — a multi-stage Docker build with one target per
+  backend process, CI that type-checks and builds every PR, CD that ships to AWS ECS on merge to
+  `main`, and a separate pipeline that builds and releases Windows/Linux desktop installers
+  (unsigned for now) to GitHub Releases + S3.
 
-## How it works
+## How the live pipeline works
 
-1. On the dashboard, click **Connect Device**. The backend creates a short-lived pairing
-   code scoped to a specific location and the dashboard shows it as a QR code
-   (`POST /api/devices/pair/start`, requires `devices:manage` at that location).
-2. On the phone, open the app and scan that QR (or type the 6-digit code). The app calls
-   `POST /api/devices/pair/claim` (no auth - the device has no credentials yet), which
-   creates a `Device` row in that pre-authorized location and returns a device-scoped JWT.
-3. While the app is in the **foreground**, it opens `WS /ws/device/{device_id}` (on
-   `apps/websocket`, port `8002`) and sends a metrics sample (battery, total RAM, disk
-   free/total, CPU) every ~2 seconds. Backgrounding or closing the app closes the socket
-   immediately - no more data leaves the device.
-4. `apps/websocket` publishes every incoming sample to Kafka - one `device-metrics` topic, keyed
-   by device id (so a device's messages always land on the same partition, preserving per-device
-   ordering) - nothing else happens inline. `apps/workers/ingestion-worker` consumes that same
-   topic independently, in its own `ingestion-worker` consumer group, and archives each sample
-   into MongoDB (`device_metrics` collection). This split is deliberate: WebSocket delivery to
-   dashboards never waits on a database write.
-5. The dashboard's Monitor page opens `WS /ws/dashboard/{device_id}`. `apps/websocket` runs one
-   shared Kafka consumer per process (its own `websocket-dashboard-fanout-*` group, so every
-   horizontally-scaled instance sees the full topic) and dispatches each message in-memory to
-   whichever local dashboard connections are watching that device - live stat cards update in
-   real time. This is the **consistency**-oriented path. `GET /api/devices/{id}/metrics/latest`
-   (REST, `apps/api`) is the **availability**-oriented alternative: always answerable, may lag by
-   however long the ingestion worker's write took.
+```mermaid
+flowchart LR
+  Device["Device\n(Expo app)"] -->|"WS, ~2s sample"| WS["apps/websocket"]
+  WS -->|"publish, key=deviceId"| Kafka[("Kafka\ndevice-metrics")]
+  Kafka -->|"consume: shared group"| Ingest["ingestion-worker"]
+  Ingest -->|insert| Mongo[("MongoDB")]
+  Kafka -->|"consume: per-instance group"| FanOut["dashboard fan-out\n+ in-memory registry"]
+  FanOut -->|ws.send| Browser["Dashboard\n(Monitor page)"]
+  Browser -.->|"GET .../metrics/latest\n(may lag)"| API["apps/api"]
+  API -.->|read| Mongo
+```
 
-Postgres holds structured app state (tenants, workspaces, locations, roles/permissions, users,
-refresh tokens, devices, pairing sessions) - schema changes only via migrations, never
-`synchronize`. MongoDB holds the metrics event stream. Kafka is the live transport between the
-device socket and its two consumers (durable Mongo writes, dashboard fan-out) - not durable
-storage on its own terms, just the pipe. Redis is wired into the stack the same way ClickHouse is
-(connection config, docker-compose service) but is no longer used by the metrics pipeline -
-Kafka replaced it there. ClickHouse itself is wired into the stack (connection + migration
-mechanism) but not yet storing application data.
+One Kafka topic, keyed by device id so a device's messages always land on the same partition. The
+solid path is the live, WebSocket-driven route; the dashed path is a REST fallback that's always
+answerable but may lag by however long the durable write took. Full write-up, including *why* a
+topic-per-device would be an anti-pattern here: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+the interactive version, [`docs/architecture.html`](docs/architecture.html).
 
-## Quickstart
+## Tech stack
 
-### 1. Infra
+| Layer | Stack |
+| --- | --- |
+| Backend API | NestJS, TypeORM, Swagger, Joi-validated config |
+| Real-time / workers | Plain TypeScript, `ws`, KafkaJS |
+| Data | PostgreSQL (system of record), MongoDB (metrics stream), Kafka (live transport), Redis + ClickHouse (provisioned, not yet load-bearing) |
+| Web | React, Vite, TypeScript, React Router |
+| Mobile | Expo, React Native, `expo-camera`/`expo-battery`/`expo-device`/`expo-file-system` |
+| Desktop | Electron, React, `electron-vite`, `electron-builder` |
+| Infra / CI-CD | Docker (multi-stage, 4 targets), Docker Compose, GitHub Actions, AWS ECS/ECR, S3 |
+
+## Try it locally
 
 ```bash
 docker compose up -d postgres mongo redis kafka clickhouse
+
+cd backend && pnpm install && cp .env.example .env
+pnpm migration:run && pnpm seed:demo     # prints demo login credentials
+pnpm dev:api & pnpm dev:websocket & pnpm dev:ingestion-worker & pnpm dev:cron-worker
+
+cd ../frontend && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-### 2. Backend
-
-```bash
-cd backend
-pnpm install
-cp .env.example .env       # already backend-specific, sectioned by database
-pnpm migration:run          # applies InitSchema + seeds roles/permissions/device types
-pnpm seed:demo               # optional: creates a demo tenant + admin/user accounts, prints credentials
-
-pnpm dev:api                 # REST API, http://localhost:8001 (/api/health, /api/docs)
-pnpm dev:websocket            # separate process, ws://localhost:8002
-pnpm dev:ingestion-worker      # separate process
-pnpm dev:cron-worker            # separate process
-```
-
-All four processes read the same `backend/.env` and share one root `package.json` (no
-per-app dependency versions to drift). See `backend/README.md` for what each app/package does
-and the full script list (build/start variants, migration commands).
-
-### 3. Frontend
-
-```bash
-cd frontend
-pnpm install
-pnpm dev
-```
-
-Runs on http://localhost:5173. Register an account, then click **Connect Device**.
-
-### 4. Pair a device
-
-**Real phone:** run the Expo app (see below) and scan the QR shown by the dashboard.
-
-**No phone handy?** Simulate one (pure Node.js, no dependencies - needs Node 22+ for native `fetch`/`WebSocket`):
+Register an account, click **Connect Device**, then simulate a phone without needing hardware:
 
 ```bash
 node scripts/simulate-device.js --code 123456   # the code shown on the dashboard
 ```
 
-The dashboard's Monitor page will start updating live, and the "Sending data" badge will
-light up.
+The Monitor page updates live. Full quickstart (including the real Expo app and the standalone
+desktop app) is in [`backend/README.md`](backend/README.md) and each directory's own `README.md`.
 
-### 5. Mobile app (Expo)
+## Docs
 
-```bash
-cd mobile
-pnpm install
-pnpm start
-```
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — the full technical write-up: component roles,
+  the auth/RBAC model, the pairing flow, and the live-metrics pipeline end to end.
+- [`docs/architecture.html`](docs/architecture.html) — the same system as an interactive,
+  diagram-based reference (open directly in a browser).
+- `backend/README.md` and each `apps/*`/`packages/*`/platform directory's own `README.md` —
+  implementation detail for that specific piece.
 
-Scan the Metro QR with Expo Go on an Android phone.
+## Current state
 
-### 6. Desktop app (optional, standalone)
+This is a working system, developed in deliberate passes rather than all at once — a few things
+are honest work-in-progress rather than oversights:
 
-```bash
-cd desktop
-pnpm install
-pnpm dev
-```
+- **`frontend/`/`mobile/` haven't been updated for the backend's latest auth contract yet** —
+  pairing now requires an authenticated caller + `locationId`, login/register now also return a
+  `refresh_token`, and the WebSocket server moved to its own port. Backend-only change so far.
+- **CPU on mobile is a JS-thread-load proxy, not a real percentage** — Android exposes no
+  permission-free way to read true system CPU load; this measures timer overshoot instead.
+- **Redis and ClickHouse are provisioned but idle** — Kafka replaced Redis as the metrics
+  transport; ClickHouse has its connection/migration mechanism wired up but no application data
+  written yet.
+- **Scoped RBAC is an initial pass** — a global (not per-tenant) permission catalog, and scope
+  resolution follows a documented route convention rather than a fully generic resolver.
 
-Opens an Electron window showing live CPU/memory/disk/load/uptime/OS/network metrics for the
-*local machine* it runs on. Doesn't talk to the backend/frontend/mobile pipeline above - see
-`desktop/README.md` for the architecture and data sources.
+Full detail on all of these, and the reasoning behind each: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#known-trade-offs-by-design-not-oversights).
 
-## What the mobile app reports, and why nothing prompts for permission
+---
 
-`mobile/src/services/deviceStats.ts` only reads things Android exposes to any app with
-**zero runtime permission dialogs**:
-
-| Field | Source | Real or estimate |
-| --- | --- | --- |
-| `battery_level`, `battery_state` | `expo-battery` | Real |
-| `total_memory_mb` | `expo-device` (`Device.totalMemory`) | Real (total device RAM) |
-| `free_disk_mb`, `total_disk_mb` | `expo-file-system` (`getFreeDiskStorageAsync`/`getTotalDiskCapacityAsync`) | Real, and changes live as the phone's storage fills/frees |
-| `device_model`, `os_version` | `expo-device` | Real, static |
-| `cpu_load_estimate_percent` | measured `setTimeout` overshoot (JS-thread lag) | **Estimate** - see below |
-
-There's no cross-platform, permission-free way to read true system-wide CPU utilization
-or currently-used RAM on modern Android without root - that's an OS restriction, not
-something a different library works around. `cpu_load_estimate_percent` is a genuine
-measurement (how late a short timer fires, i.e. how busy the JS thread is), not random
-noise, but treat it as a load *proxy* rather than a real CPU percentage.
-
-## Project layout
-
-```
-backend/
-  apps/api/src/                 NestJS: auth, users, tenants, workspaces, locations, devices, health
-  apps/websocket/src/            plain TS: raw `ws` server, /ws/device/{id} + /ws/dashboard/{id}
-  apps/workers/ingestion-worker/  plain TS: Kafka consumer -> MongoDB device_metrics writer
-  apps/workers/cron-worker/        plain TS: expire pairing sessions, mark stale devices offline
-  packages/database/              postgres (entities+migrations) / mongo / redis / kafka / clickhouse
-  packages/auth/                   TokenService, refresh tokens, scoped RBAC permission checks
-  packages/common/                 types, constants, config loading, logging
-```
-
-See `backend/README.md` and each `apps/*`/`packages/*` directory's own `README.md` for details.
-
-```
-frontend/src/
-  api/client.ts                REST client + token storage
-  hooks/useDashboardSocket.ts  dashboard WebSocket hook
-  pages/Login.tsx, Devices.tsx, ConnectDevice.tsx, Monitor.tsx
-
-mobile/src/
-  services/api.ts, deviceStats.ts, socket.ts
-  screens/ScanScreen.tsx, MonitorScreen.tsx
-```
-
-```
-desktop/src/
-  shared/                        IPC channel constants + types shared by main/preload/renderer
-  main/metrics/                  one MetricCollector per domain (cpu/memory/disk/...), SystemMetricsService, MetricsPoller
-  main/ipc/metrics.ipc.ts         wires the poller to ipcMain/webContents
-  preload/index.ts                 contextBridge-exposed, typed window.metricsApi
-  renderer/src/                     React dashboard: useSystemMetrics hook + one panel per metric domain
-```
-
-## Known MVP shortcuts (documented on purpose)
-
-- **CPU is a JS-thread-load proxy, not a real percentage** - see the table above.
-- **`apps/websocket` consumes its whole Kafka topic per process instance** - dashboard fan-out has
-  no per-device Kafka subscription (a topic per device would be an unbounded topic-count
-  anti-pattern), so every horizontally-scaled instance sees 100% of the topic's volume regardless
-  of how many dashboards are actually connected to it, filtering in-memory instead. This is the
-  same "broadcast to all subscribers" cost Redis pub/sub already had, not a new regression - see
-  `backend/apps/websocket/README.md`.
-- **Redis is wired but no longer used** - it was the metrics pipeline's transport until Kafka
-  replaced it; the docker-compose service, config, and `packages/database/redis` all remain, same
-  "infra-only" status ClickHouse already has below.
-- **Scoped RBAC is an "initial impl"** - a global role/permission catalog (not per-tenant),
-  `PermissionsGuard` resolves scope from routes by a documented convention rather than a fully
-  generic resource resolver, and `user_role_assignments.scope_id` is an application-validated
-  polymorphic reference, not a DB-level constraint. See `backend/README.md`.
-- **ClickHouse is infra-only** - connection + migration mechanism wired up, no application
-  data written to it yet.
+Built by [@mj-praba](https://github.com/mj-praba).
