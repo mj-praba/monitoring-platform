@@ -26,6 +26,12 @@ export interface RedisConfig {
   ssl: boolean;
 }
 
+export interface KafkaConfig {
+  brokers: string[];
+  clientId: string;
+  ssl: boolean;
+}
+
 export interface ClickHouseConfig {
   host: string;
   port: number;

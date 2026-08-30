@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>monitoring-platform — Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ---------------------------------------------------------------------
+     Tokens — light is the default (bare :root); dark redefines the same
+     tokens under prefers-color-scheme, guarded so an explicit light
+     choice wins; :root[data-theme="dark"] redefines again so a manual
+     toggle wins in both directions.
+  --------------------------------------------------------------------- */
+  :root {
+    --bg: #F1F4F6;
+    --surface: #FFFFFF;
+    --surface-2: #E7ECEF;
+    --ink: #16232E;
+    --ink-dim: #55697A;
+    --line: rgba(22,35,46,0.14);
+    --line-strong: rgba(22,35,46,0.28);
+    --accent: #146D72;
+    --accent-soft: #DCEEEE;
+    --accent-ink: #FFFFFF;
+    --accent-2: #A85D22;
+    --accent-2-soft: #F3E3D2;
+    --standalone: #6B5B95;
+    --standalone-soft: #E9E4F2;
+    --shadow: 0 1px 2px rgba(22,35,46,0.06), 0 8px 24px -12px rgba(22,35,46,0.18);
+    --font-display: "Manrope", "Segoe UI", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0C1620;
+      --surface: #121F2C;
+      --surface-2: #182735;
+      --ink: #E7EDF2;
+      --ink-dim: #94A7B7;
+      --line: rgba(231,237,242,0.14);
+      --line-strong: rgba(231,237,242,0.26);
+      --accent: #4FC7CB;
+      --accent-soft: #163338;
+      --accent-ink: #06181A;
+      --accent-2: #E2A25C;
+      --accent-2-soft: #2E2013;
+      --standalone: #B3A2E6;
+      --standalone-soft: #241F35;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0C1620;
+    --surface: #121F2C;
+    --surface-2: #182735;
+    --ink: #E7EDF2;
+    --ink-dim: #94A7B7;
+    --line: rgba(231,237,242,0.14);
+    --line-strong: rgba(231,237,242,0.26);
+    --accent: #4FC7CB;
+    --accent-soft: #163338;
+    --accent-ink: #06181A;
+    --accent-2: #E2A25C;
+    --accent-2-soft: #2E2013;
+    --standalone: #B3A2E6;
+    --standalone-soft: #241F35;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+  a { color: var(--accent); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+  code, .mono { font-family: var(--font-mono); }
+
+  /* ---------------------------------------------------------------- layout */
+  .shell {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: 1fr; }
+  }
+
+  .side {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 20px;
+    border-right: 1px solid var(--line);
+  }
+  @media (max-width: 880px) {
+    .side {
+      position: static;
+      height: auto;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding: 16px 20px;
+    }
+    .side nav ul { display: flex; overflow-x: auto; gap: 4px; padding-bottom: 4px; }
+    .side nav li { flex: 0 0 auto; }
+  }
+
+  .brand {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--ink-dim);
+    letter-spacing: 0.02em;
+    margin-bottom: 22px;
+  }
+  .side nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .side nav a {
+    display: block;
+    padding: 7px 10px;
+    border-radius: 7px;
+    color: var(--ink-dim);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .side nav a:hover { background: var(--surface-2); color: var(--ink); }
+
+  main { padding: 44px 40px 80px; min-width: 0; }
+  @media (max-width: 620px) { main { padding: 28px 18px 60px; } }
+
+  header.hero {
+    padding-bottom: 30px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  h1.title { font-size: clamp(28px, 4vw, 40px); font-weight: 800; letter-spacing: -0.01em; }
+  .dek { font-size: 17px; color: var(--ink-dim); max-width: 62ch; margin: 14px 0 0; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+    padding: 5px 10px; border-radius: 999px;
+    border: 1px solid var(--line-strong);
+  }
+  .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .chip.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  .chip.active .dot { background: var(--accent); }
+  .chip.dormant { background: var(--accent-2-soft); color: var(--accent-2); border-color: transparent; }
+  .chip.dormant .dot { background: var(--accent-2); }
+  .chip.standalone { background: var(--standalone-soft); color: var(--standalone); border-color: transparent; }
+  .chip.standalone .dot { background: var(--standalone); }
+
+  section { margin: 0 0 64px; scroll-margin-top: 20px; }
+  section .kicker {
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim);
+    text-transform: uppercase; letter-spacing: 0.08em; margin: 0 0 8px;
+  }
+  section h2 { font-size: clamp(21px, 2.6vw, 26px); font-weight: 800; margin-bottom: 14px; }
+  section > p.lead { font-size: 15.5px; color: var(--ink-dim); max-width: 72ch; margin: 0 0 22px; }
+  section p { max-width: 72ch; }
+
+  figure {
+    margin: 0 0 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 20px 14px;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  figure svg { display: block; width: 100%; height: auto; min-width: 560px; }
+  figcaption {
+    font-size: 13.5px; color: var(--ink-dim); margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--line);
+  }
+
+  svg text { font-family: var(--font-mono); }
+  svg .lbl-title { font-family: var(--font-display); font-weight: 700; }
+
+  .note-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+  .note {
+    font-size: 12.5px; font-family: var(--font-mono); color: var(--ink-dim);
+    padding: 4px 9px; border: 1px dashed var(--line-strong); border-radius: 7px;
+  }
+
+  .callout {
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin: 18px 0; font-size: 14.5px;
+  }
+  .callout.warn { border-left-color: var(--accent-2); }
+  .callout strong { font-family: var(--font-display); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-dim); font-weight: 500; }
+  td code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
+  .table-wrap table { min-width: 640px; }
+
+  ol.steps { padding-left: 0; margin: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 14px; }
+  ol.steps li {
+    counter-increment: step; position: relative; padding-left: 40px; font-size: 15px;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: -1px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-family: var(--font-mono); font-weight: 600; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.steps code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 13.5px; }
+
+  .shortcuts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .shortcut { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 14px; box-shadow: var(--shadow); }
+  .shortcut strong { display: block; font-family: var(--font-display); font-size: 14.5px; margin-bottom: 4px; }
+
+  footer.page-end {
+    margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--line);
+    font-size: 13.5px; color: var(--ink-dim); font-family: var(--font-mono);
+  }
+  footer.page-end a { color: var(--ink-dim); text-decoration-color: var(--line-strong); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    a, .chip { transition: background-color 120ms ease, color 120ms ease; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">monitoring&#8209;platform / docs</div>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#system-map">System map</a></li>
+        <li><a href="#auth">Auth &amp; access scope</a></li>
+        <li><a href="#pairing">Device pairing</a></li>
+        <li><a href="#pipeline">Live metrics pipeline</a></li>
+        <li><a href="#stores">Data stores</a></li>
+        <li><a href="#tradeoffs">Known trade-offs</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="hero" id="overview">
+      <p class="eyebrow">Architecture reference</p>
+      <h1 class="title">How monitoring&#8209;platform fits together</h1>
+      <p class="dek">
+        A full-stack system for monitoring Android devices in real time: a React dashboard, an
+        Expo mobile app, and a small backend monorepo built around one deliberate split —
+        <strong>live delivery to a dashboard never waits on a database write, and a database
+        write never waits on live delivery.</strong> This page traces that mechanism end to end.
+      </p>
+      <div class="legend">
+        <span class="chip active"><span class="dot"></span>active in the pipeline</span>
+        <span class="chip dormant"><span class="dot"></span>wired, currently dormant</span>
+        <span class="chip standalone"><span class="dot"></span>standalone, unrelated</span>
+      </div>
+    </header>
+
+    <section id="system-map">
+      <p class="kicker">01 — Orientation</p>
+      <h2>System map</h2>
+      <p class="lead">
+        Two clients (web dashboard, mobile app) talk to a four-process backend. Kafka sits
+        between the WebSocket layer and its two independent consumers. Redis and ClickHouse are
+        provisioned but idle; the desktop app doesn't connect to any of this at all.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 1040 600" role="img" aria-label="System map: Frontend and Mobile clients connect to apps/api and apps/websocket over REST and WebSocket. apps/websocket publishes to Kafka; ingestion-worker consumes it into MongoDB. apps/api reads and writes Postgres. cron-worker performs housekeeping on Postgres. Redis and ClickHouse are wired but dormant. The desktop app stands alone with no connection.">
+          <defs>
+            <marker id="arrow1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g font-size="12.5" fill="currentColor">
+
+            <!-- clients -->
+            <rect x="40" y="30" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="140" y="56" text-anchor="middle" class="lbl-title" font-size="14">Frontend</text>
+            <text x="140" y="74" text-anchor="middle" opacity="0.65">React + Vite — dashboard</text>
+
+            <rect x="300" y="30" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="400" y="56" text-anchor="middle" class="lbl-title" font-size="14">Mobile</text>
+            <text x="400" y="74" text-anchor="middle" opacity="0.65">Expo — pairs &amp; streams</text>
+
+            <rect x="770" y="30" width="230" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="5 4" opacity="0.8"/>
+            <text x="885" y="56" text-anchor="middle" class="lbl-title" font-size="14" opacity="0.8">Desktop</text>
+            <text x="885" y="74" text-anchor="middle" opacity="0.6">Electron — own machine only, unrelated</text>
+
+            <!-- backend -->
+            <rect x="40" y="160" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="140" y="186" text-anchor="middle" class="lbl-title" font-size="14">apps/api</text>
+            <text x="140" y="204" text-anchor="middle" opacity="0.65">NestJS — REST, auth</text>
+
+            <rect x="300" y="160" width="200" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="400" y="186" text-anchor="middle" class="lbl-title" font-size="14">apps/websocket</text>
+            <text x="400" y="204" text-anchor="middle" opacity="0.65">device + dashboard sockets</text>
+
+            <rect x="580" y="160" width="170" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="665" y="186" text-anchor="middle" class="lbl-title" font-size="13.5">cron-worker</text>
+            <text x="665" y="204" text-anchor="middle" opacity="0.65">housekeeping</text>
+
+            <!-- kafka -->
+            <rect x="300" y="280" width="220" height="48" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+            <text x="410" y="299" text-anchor="middle" class="lbl-title" font-size="13" fill="var(--accent)">Kafka</text>
+            <text x="410" y="316" text-anchor="middle" fill="var(--accent)" opacity="0.85" font-size="11.5">topic: device-metrics</text>
+
+            <!-- ingestion worker -->
+            <rect x="300" y="390" width="220" height="58" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="410" y="415" text-anchor="middle" class="lbl-title" font-size="13">ingestion-worker</text>
+            <text x="410" y="432" text-anchor="middle" opacity="0.65" font-size="11.5">Kafka → Mongo writer</text>
+
+            <!-- stores -->
+            <rect x="40" y="500" width="220" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="150" y="526" text-anchor="middle" class="lbl-title" font-size="14">PostgreSQL</text>
+            <text x="150" y="544" text-anchor="middle" opacity="0.65">system of record</text>
+
+            <rect x="300" y="500" width="220" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="410" y="526" text-anchor="middle" class="lbl-title" font-size="14">MongoDB</text>
+            <text x="410" y="544" text-anchor="middle" opacity="0.65">device_metrics</text>
+
+            <rect x="580" y="500" width="200" height="60" rx="10" fill="none" stroke="var(--accent-2)" stroke-width="1.4" stroke-dasharray="5 4" opacity="0.85"/>
+            <text x="680" y="526" text-anchor="middle" class="lbl-title" font-size="13.5" fill="var(--accent-2)">Redis</text>
+            <text x="680" y="544" text-anchor="middle" fill="var(--accent-2)" opacity="0.9" font-size="11">wired, dormant</text>
+
+            <rect x="820" y="500" width="200" height="60" rx="10" fill="none" stroke="var(--accent-2)" stroke-width="1.4" stroke-dasharray="5 4" opacity="0.85"/>
+            <text x="920" y="526" text-anchor="middle" class="lbl-title" font-size="13.5" fill="var(--accent-2)">ClickHouse</text>
+            <text x="920" y="544" text-anchor="middle" fill="var(--accent-2)" opacity="0.9" font-size="11">wired, dormant</text>
+
+            <!-- arrows: clients -> backend -->
+            <line x1="140" y1="90" x2="140" y2="158" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow1)"/>
+            <text x="148" y="128" font-size="11">REST, JWT</text>
+
+            <line x1="180" y1="90" x2="365" y2="158" stroke="currentColor" stroke-width="1.1" opacity="0.75" marker-end="url(#arrow1)"/>
+            <text x="235" y="118" font-size="10.5" opacity="0.75">WS /ws/dashboard/&#123;id&#125;</text>
+
+            <line x1="360" y1="90" x2="175" y2="158" stroke="currentColor" stroke-width="1.1" opacity="0.75" marker-end="url(#arrow1)"/>
+            <text x="255" y="150" font-size="10.5" opacity="0.75">REST pairing</text>
+
+            <line x1="400" y1="90" x2="400" y2="158" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow1)"/>
+            <text x="408" y="128" font-size="11">WS /ws/device/&#123;id&#125;</text>
+
+            <!-- websocket -> kafka -->
+            <line x1="400" y1="220" x2="400" y2="278" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow1)"/>
+            <text x="408" y="255" font-size="11" fill="var(--accent)">publish</text>
+
+            <!-- kafka -> ingestion worker -->
+            <line x1="410" y1="328" x2="410" y2="388" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow1)"/>
+            <text x="418" y="365" font-size="11" fill="var(--accent)">consume</text>
+
+            <!-- kafka -> websocket fan-out (curved return) -->
+            <path d="M 520 300 C 620 300, 620 195, 502 190" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-dasharray="1 4" marker-end="url(#arrow1)"/>
+            <text x="528" y="250" font-size="10.5" fill="var(--accent)">consume + fan-out (own process group)</text>
+
+            <!-- ingestion -> mongo -->
+            <line x1="410" y1="448" x2="410" y2="498" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow1)"/>
+            <text x="418" y="478" font-size="11">insert</text>
+
+            <!-- api -> postgres -->
+            <line x1="140" y1="220" x2="140" y2="498" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow1)"/>
+            <text x="148" y="360" font-size="11">reads / writes, migrations</text>
+
+            <!-- api -> mongo (availability path) -->
+            <path d="M 230 220 C 300 320, 330 420, 385 498" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="5 4" opacity="0.65" marker-end="url(#arrow1)"/>
+            <text x="255" y="330" font-size="10.5" opacity="0.7">GET .../metrics/latest</text>
+
+            <!-- cron -> postgres -->
+            <path d="M 610 220 C 500 320, 350 420, 255 498" fill="none" stroke="currentColor" stroke-width="1.1" opacity="0.65" marker-end="url(#arrow1)"/>
+            <text x="500" y="300" font-size="10.5" opacity="0.7">housekeeping, every 60s</text>
+          </g>
+        </svg>
+        <figcaption>
+          Solid teal = the live-metrics path (WebSocket → Kafka → two consumers). Dashed grey =
+          the REST availability path, which reads MongoDB directly and may lag. Redis and
+          ClickHouse (dashed amber) sit in the stack unconnected — see “Known trade-offs”.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section id="auth">
+      <p class="kicker">02 — Identity</p>
+      <h2>Auth &amp; access scope</h2>
+      <p class="lead">
+        JWT access + refresh tokens identify <em>who</em>; a three-level scope hierarchy decides
+        <em>what they can touch</em>. A role assignment made at a higher level automatically
+        covers everything nested beneath it.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 640 300" role="img" aria-label="Nested scope diagram: a Tenant contains Workspaces, which contain Locations. A permission assignment at any level cascades down to cover everything nested inside it.">
+          <defs>
+            <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g font-size="12.5" fill="currentColor">
+            <rect x="20" y="20" width="440" height="260" rx="12" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="40" y="44" class="lbl-title" font-size="13.5">Tenant</text>
+            <text x="40" y="62" opacity="0.6" font-size="11">created at registration</text>
+
+            <rect x="60" y="80" width="360" height="170" rx="10" fill="none" stroke="currentColor" stroke-width="1.3"/>
+            <text x="80" y="102" class="lbl-title" font-size="13">Workspace</text>
+            <text x="80" y="119" opacity="0.6" font-size="11">e.g. "Default Workspace"</text>
+
+            <rect x="100" y="136" width="280" height="94" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.3"/>
+            <text x="120" y="160" class="lbl-title" font-size="13" fill="var(--accent)">Location</text>
+            <text x="120" y="178" fill="var(--accent)" opacity="0.85" font-size="11">e.g. "Home" — one or more devices</text>
+            <text x="120" y="200" fill="var(--accent)" opacity="0.85" font-size="11">assignment here covers only itself</text>
+
+            <line x1="540" y1="30" x2="540" y2="270" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow2)"/>
+            <text x="552" y="70" font-size="11.5">assignment</text>
+            <text x="552" y="86" font-size="11.5">cascades</text>
+            <text x="552" y="102" font-size="11.5">downward</text>
+            <text x="552" y="230" font-size="11" opacity="0.65">tenant-level →</text>
+            <text x="552" y="246" font-size="11" opacity="0.65">every workspace</text>
+            <text x="552" y="262" font-size="11" opacity="0.65">&amp; location beneath</text>
+          </g>
+        </svg>
+        <figcaption>
+          Resolved fresh from Postgres on every request — never trusted from the JWT — so a
+          permission change takes effect immediately. <code>apps/api</code>'s
+          <code>PermissionsGuard</code> and <code>apps/websocket</code>'s dashboard-connection
+          check call the same <code>hasPermission()</code> function.
+        </figcaption>
+      </figure>
+
+      <div class="callout">
+        <strong>Two token scopes, never interchangeable.</strong> A <em>user</em>-scoped token
+        (issued at login) is required on <code>/ws/dashboard/*</code>; a <em>device</em>-scoped
+        token (issued at pairing claim) is required on <code>/ws/device/*</code>. Each socket
+        rejects the other token type outright.
+      </div>
+    </section>
+
+    <section id="pairing">
+      <p class="kicker">03 — Onboarding</p>
+      <h2>Device pairing</h2>
+      <p class="lead">
+        A short-lived, location-scoped code links an unauthenticated phone to an authenticated
+        dashboard session — the phone never sees the user's own credentials.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 900 400" role="img" aria-label="Sequence diagram: Dashboard requests a pairing code from the Backend API, displays it as a QR code, the Mobile app scans and claims it to receive a device token, and the Dashboard polls pairing status until it navigates to the live Monitor page.">
+          <defs>
+            <marker id="arrow3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g font-size="12" fill="currentColor">
+            <text x="120" y="30" text-anchor="middle" class="lbl-title" font-size="13.5">Dashboard</text>
+            <line x1="120" y1="42" x2="120" y2="370" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" opacity="0.5"/>
+
+            <text x="460" y="30" text-anchor="middle" class="lbl-title" font-size="13.5">Backend API</text>
+            <line x1="460" y1="42" x2="460" y2="370" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" opacity="0.5"/>
+
+            <text x="800" y="30" text-anchor="middle" class="lbl-title" font-size="13.5">Mobile app</text>
+            <line x1="800" y1="42" x2="800" y2="370" stroke="currentColor" stroke-width="1" stroke-dasharray="2 4" opacity="0.5"/>
+
+            <line x1="120" y1="70" x2="452" y2="70" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="130" y="63" font-size="11">1. POST /pair/start (auth, locationId)</text>
+
+            <line x1="460" y1="105" x2="128" y2="105" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="200" y="98" font-size="11">2. code + QR (expires in 5 min)</text>
+
+            <line x1="120" y1="160" x2="792" y2="160" stroke="currentColor" stroke-width="1.1" stroke-dasharray="5 4" opacity="0.75" marker-end="url(#arrow3)"/>
+            <text x="330" y="153" font-size="11" opacity="0.8">3. scan QR / type code — visual, not a network call</text>
+
+            <line x1="800" y1="200" x2="468" y2="200" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="480" y="193" font-size="11">4. POST /pair/claim &#123;code&#125; — no auth</text>
+
+            <line x1="460" y1="240" x2="792" y2="240" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="475" y="233" font-size="11">5. device JWT + ws_device_url</text>
+
+            <line x1="120" y1="295" x2="452" y2="295" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="130" y="288" font-size="11">6. poll GET /pair/status/&#123;code&#125; every 2s</text>
+
+            <line x1="460" y1="335" x2="128" y2="335" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow3)"/>
+            <text x="150" y="328" font-size="11">7. claimed → navigate to Monitor page</text>
+          </g>
+        </svg>
+        <figcaption>
+          An unclaimed code is proactively marked <code>expired</code> by
+          <code>apps/workers/cron-worker</code> once its TTL passes, not just lazily on the next
+          claim attempt.
+        </figcaption>
+      </figure>
+    </section>
+
+    <section id="pipeline">
+      <p class="kicker">04 — The core mechanism</p>
+      <h2>Live metrics pipeline</h2>
+      <p class="lead">
+        One Kafka topic, keyed by device id, feeds two consumer groups with <em>opposite</em>
+        scaling semantics — one shards for durability, the other broadcasts for fan-out. This
+        contrast is the reason the pipeline looks the way it does.
+      </p>
+
+      <figure>
+        <svg viewBox="0 0 1080 700" role="img" aria-label="A Device publishes metrics over WebSocket to apps/websocket, which publishes to a Kafka topic keyed by device id. Two consumer groups read that topic: ingestion-worker, in a shared group that shards partitions for durable MongoDB writes, and a per-process dashboard fan-out consumer, in its own group so every instance gets the full topic, which dispatches to a DashboardRegistry and out to the Browser over WebSocket. A separate dashed availability path lets the Browser call apps/api's REST endpoint, which reads MongoDB directly and may lag.">
+          <defs>
+            <marker id="arrow4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <g font-size="12" fill="currentColor">
+
+            <rect x="430" y="20" width="220" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="540" y="46" text-anchor="middle" class="lbl-title" font-size="13.5">Device</text>
+            <text x="540" y="64" text-anchor="middle" opacity="0.65" font-size="11">Expo app, foregrounded</text>
+
+            <rect x="280" y="140" width="520" height="66" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="540" y="166" text-anchor="middle" class="lbl-title" font-size="13.5">apps/websocket</text>
+            <text x="540" y="184" text-anchor="middle" opacity="0.6" font-size="11">this process instance — publishes device samples</text>
+
+            <rect x="340" y="270" width="400" height="50" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.4"/>
+            <text x="540" y="289" text-anchor="middle" class="lbl-title" font-size="13" fill="var(--accent)">Kafka — topic "device-metrics"</text>
+            <text x="540" y="306" text-anchor="middle" fill="var(--accent)" opacity="0.85" font-size="11">key = deviceId · 6 partitions · replication 1</text>
+
+            <rect x="80" y="380" width="300" height="66" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="230" y="405" text-anchor="middle" class="lbl-title" font-size="13">ingestion-worker</text>
+            <text x="230" y="422" text-anchor="middle" opacity="0.6" font-size="10.5">group: "ingestion-worker" — shared</text>
+            <text x="230" y="437" text-anchor="middle" opacity="0.6" font-size="10.5">scaling this shards the topic</text>
+
+            <rect x="700" y="380" width="300" height="66" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="850" y="405" text-anchor="middle" class="lbl-title" font-size="13">fan-out consumer</text>
+            <text x="850" y="422" text-anchor="middle" opacity="0.6" font-size="10.5">group: "websocket-dashboard-fanout-&lt;uuid&gt;"</text>
+            <text x="850" y="437" text-anchor="middle" opacity="0.6" font-size="10.5">own group ⇒ every instance sees everything</text>
+
+            <rect x="80" y="500" width="300" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="230" y="526" text-anchor="middle" class="lbl-title" font-size="13.5">MongoDB</text>
+            <text x="230" y="544" text-anchor="middle" opacity="0.6" font-size="11">device_metrics collection</text>
+
+            <rect x="700" y="500" width="300" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="850" y="524" text-anchor="middle" class="lbl-title" font-size="12.5">DashboardRegistry</text>
+            <text x="850" y="542" text-anchor="middle" opacity="0.6" font-size="10.5">Map&lt;deviceId, Set&lt;WebSocket&gt;&gt;</text>
+
+            <rect x="80" y="610" width="300" height="56" rx="10" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.85"/>
+            <text x="230" y="643" text-anchor="middle" class="lbl-title" font-size="13">apps/api</text>
+
+            <rect x="700" y="610" width="300" height="56" rx="10" fill="none" stroke="currentColor" stroke-width="1.4"/>
+            <text x="850" y="637" text-anchor="middle" class="lbl-title" font-size="13">Browser</text>
+            <text x="850" y="654" text-anchor="middle" opacity="0.6" font-size="10.5">Monitor page</text>
+
+            <!-- arrows -->
+            <line x1="540" y1="80" x2="540" y2="138" stroke="currentColor" stroke-width="1.4" marker-end="url(#arrow4)"/>
+            <text x="552" y="115" font-size="11">WS /ws/device/&#123;id&#125; — sample every ~2s</text>
+
+            <line x1="450" y1="206" x2="420" y2="268" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#arrow4)"/>
+            <text x="270" y="245" font-size="11" fill="var(--accent)">publish(topic, key = deviceId)</text>
+
+            <line x1="420" y1="320" x2="260" y2="378" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arrow4)"/>
+            <text x="180" y="356" font-size="10.5" fill="var(--accent)">consume — shared group</text>
+
+            <line x1="660" y1="320" x2="820" y2="378" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arrow4)"/>
+            <text x="700" y="356" font-size="10.5" fill="var(--accent)">consume — per-instance group</text>
+
+            <line x1="230" y1="446" x2="230" y2="498" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow4)"/>
+            <text x="238" y="476" font-size="11">insertOne(device_metrics)</text>
+
+            <line x1="850" y1="446" x2="850" y2="498" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow4)"/>
+            <text x="858" y="476" font-size="11">dispatch(deviceId, message)</text>
+
+            <line x1="850" y1="560" x2="850" y2="608" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrow4)"/>
+            <text x="858" y="588" font-size="11">ws.send() → matching sockets</text>
+
+            <!-- availability path -->
+            <line x1="700" y1="638" x2="388" y2="638" stroke="currentColor" stroke-width="1.1" stroke-dasharray="5 4" opacity="0.65" marker-end="url(#arrow4)"/>
+            <text x="420" y="631" font-size="10.5" opacity="0.7">GET /devices/&#123;id&#125;/metrics/latest</text>
+
+            <line x1="230" y1="608" x2="230" y2="562" stroke="currentColor" stroke-width="1.1" stroke-dasharray="5 4" opacity="0.65" marker-end="url(#arrow4)"/>
+            <text x="238" y="590" font-size="10.5" opacity="0.7">read — may lag</text>
+          </g>
+        </svg>
+        <figcaption>
+          <strong>Why not a topic per device?</strong> Kafka's unit of parallelism is the
+          topic/partition, not a lightweight per-connection filter the way a Redis channel is —
+          a topic per device would be an unbounded topic-count anti-pattern. Keying one shared
+          topic by device id keeps per-device ordering without that cost; the fan-out side pays
+          for it instead with every <code>apps/websocket</code> instance consuming 100% of the
+          topic's volume, filtering to local sockets in memory. See “Known trade-offs”.
+        </figcaption>
+      </figure>
+
+      <div class="note-row">
+        <span class="note">solid teal = live path (WS + Kafka)</span>
+        <span class="note">dashed = REST availability path</span>
+        <span class="note">DEVICE_METRICS_TOPIC = "device-metrics"</span>
+      </div>
+    </section>
+
+    <section id="stores">
+      <p class="kicker">05 — Storage</p>
+      <h2>Data stores at a glance</h2>
+      <p class="lead">Five stores, three of them load-bearing today.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Store</th><th>Role</th><th>Written by</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">PostgreSQL</td>
+              <td>System of record — tenants, workspaces, locations, roles, users, refresh tokens, devices, pairing sessions.</td>
+              <td class="mono">apps/api (TypeORM migrations only)</td>
+              <td><span class="chip active"><span class="dot"></span>active</span></td>
+            </tr>
+            <tr>
+              <td class="mono">MongoDB</td>
+              <td>Metrics event stream — one document per device sample.</td>
+              <td class="mono">apps/workers/ingestion-worker</td>
+              <td><span class="chip active"><span class="dot"></span>active</span></td>
+            </tr>
+            <tr>
+              <td class="mono">Kafka</td>
+              <td>Live transport between apps/websocket and its two consumers — not a destination, a pipe.</td>
+              <td class="mono">apps/websocket</td>
+              <td><span class="chip active"><span class="dot"></span>active</span></td>
+            </tr>
+            <tr>
+              <td class="mono">Redis</td>
+              <td>Formerly the pub/sub transport for this same pipeline — Kafka replaced it. Still provisioned.</td>
+              <td class="mono">—</td>
+              <td><span class="chip dormant"><span class="dot"></span>dormant</span></td>
+            </tr>
+            <tr>
+              <td class="mono">ClickHouse</td>
+              <td>Connection + migration mechanism wired up; no application data written yet.</td>
+              <td class="mono">—</td>
+              <td><span class="chip dormant"><span class="dot"></span>dormant</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tradeoffs">
+      <p class="kicker">06 — Read this before extending it</p>
+      <h2>Known trade-offs</h2>
+      <p class="lead">By design, documented on purpose — not oversights waiting to be found.</p>
+
+      <div class="shortcuts">
+        <div class="shortcut">
+          <strong>CPU is a proxy, not a real percentage</strong>
+          Android exposes no permission-free, root-free way to read true system CPU load. The mobile app measures JS-thread timer overshoot instead — a genuine measurement, but of thread contention, not CPU%.
+        </div>
+        <div class="shortcut">
+          <strong>Every websocket instance eats the full topic</strong>
+          Dashboard fan-out has no per-device Kafka subscription, so every horizontally-scaled <code>apps/websocket</code> instance consumes 100% of the topic regardless of local viewer count — the same cost Redis pub/sub already had.
+        </div>
+        <div class="shortcut">
+          <strong>Redis and ClickHouse are wired but idle</strong>
+          Both keep their docker-compose service, config, and package — ready if a future use case (caching, analytics) needs them — but neither is on the metrics pipeline today.
+        </div>
+        <div class="shortcut">
+          <strong>Scoped RBAC is an "initial impl"</strong>
+          A global role/permission catalog (not per-tenant); route-convention scope resolution rather than a fully generic resolver; <code>scope_id</code> is application-validated, not a DB-level constraint.
+        </div>
+      </div>
+    </section>
+
+    <footer class="page-end">
+      Generated reference for the <code>monitoring-platform</code> repository — see
+      <a href="../README.md">README.md</a>, <a href="ARCHITECTURE.md">docs/ARCHITECTURE.md</a>,
+      and <a href="../backend/README.md">backend/README.md</a> for the prose version and
+      implementation-level detail per directory.
+    </footer>
+  </main>
+</div>
+</body>
+</html>
