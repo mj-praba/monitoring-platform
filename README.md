@@ -10,8 +10,8 @@ A full-stack SaaS app for monitoring Android devices in real time:
   - `apps/workers/ingestion-worker` (plain TypeScript) - persists live metrics into MongoDB.
   - `apps/workers/cron-worker` (plain TypeScript) - expires stale pairing sessions, marks
     stale devices offline.
-  - `packages/database` - Postgres (TypeORM, migrations) / MongoDB / Redis / ClickHouse, one
-    sub-module each.
+  - `packages/database` - Postgres (TypeORM, migrations) / MongoDB / Redis / Kafka / ClickHouse,
+    one sub-module each.
   - `packages/auth` - JWT + scoped RBAC (tenant -> workspace -> location, roles/permissions).
   - `packages/common` - shared types, constants, config loading, logging.
 - **`frontend/`** - React + Vite + TypeScript web dashboard (the SaaS app)
@@ -23,6 +23,16 @@ A full-stack SaaS app for monitoring Android devices in real time:
 
 Backend, frontend, mobile, and desktop all use **pnpm** (not npm/yarn) - install it with
 `npm install -g pnpm` or `corepack enable` if you don't have it.
+
+## Docs
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) - deeper technical reference: component roles,
+  data-store responsibilities, the auth/RBAC model, the pairing flow, and the live-metrics
+  pipeline's Kafka topic/consumer-group design end to end.
+- [`docs/architecture.html`](docs/architecture.html) - the same system, rendered as a visual
+  diagram (open it directly in a browser).
+- `backend/README.md` and each `apps/*`/`packages/*` directory's own `README.md` - implementation
+  detail for that specific piece.
 
 > **Frontend/mobile compatibility note:** the backend's pairing/auth API contract changed as
 > part of the `apps`/`packages` restructure (see `backend/README.md` for the full picture):
@@ -44,29 +54,35 @@ Backend, frontend, mobile, and desktop all use **pnpm** (not npm/yarn) - install
    `apps/websocket`, port `8002`) and sends a metrics sample (battery, total RAM, disk
    free/total, CPU) every ~2 seconds. Backgrounding or closing the app closes the socket
    immediately - no more data leaves the device.
-4. `apps/websocket` publishes every incoming sample to a Redis channel
-   (`device:{id}:metrics`) - nothing else happens inline. `apps/workers/ingestion-worker`
-   subscribes to that same channel independently and archives each sample into MongoDB
-   (`device_metrics` collection). This split is deliberate: WebSocket delivery to dashboards
-   never waits on a database write.
-5. The dashboard's Monitor page opens `WS /ws/dashboard/{device_id}`, which subscribes to
-   that same Redis channel and forwards messages straight to the browser - live stat cards
-   update in real time. This is the **consistency**-oriented path. `GET
-   /api/devices/{id}/metrics/latest` (REST, `apps/api`) is the **availability**-oriented
-   alternative: always answerable, may lag by however long the ingestion worker's write took.
+4. `apps/websocket` publishes every incoming sample to Kafka - one `device-metrics` topic, keyed
+   by device id (so a device's messages always land on the same partition, preserving per-device
+   ordering) - nothing else happens inline. `apps/workers/ingestion-worker` consumes that same
+   topic independently, in its own `ingestion-worker` consumer group, and archives each sample
+   into MongoDB (`device_metrics` collection). This split is deliberate: WebSocket delivery to
+   dashboards never waits on a database write.
+5. The dashboard's Monitor page opens `WS /ws/dashboard/{device_id}`. `apps/websocket` runs one
+   shared Kafka consumer per process (its own `websocket-dashboard-fanout-*` group, so every
+   horizontally-scaled instance sees the full topic) and dispatches each message in-memory to
+   whichever local dashboard connections are watching that device - live stat cards update in
+   real time. This is the **consistency**-oriented path. `GET /api/devices/{id}/metrics/latest`
+   (REST, `apps/api`) is the **availability**-oriented alternative: always answerable, may lag by
+   however long the ingestion worker's write took.
 
 Postgres holds structured app state (tenants, workspaces, locations, roles/permissions, users,
 refresh tokens, devices, pairing sessions) - schema changes only via migrations, never
-`synchronize`. MongoDB holds the metrics event stream. Redis is purely a pub/sub fan-out layer
-between the device socket and any dashboard sockets watching that device. ClickHouse is wired
-into the stack (connection + migration mechanism) but not yet storing application data.
+`synchronize`. MongoDB holds the metrics event stream. Kafka is the live transport between the
+device socket and its two consumers (durable Mongo writes, dashboard fan-out) - not durable
+storage on its own terms, just the pipe. Redis is wired into the stack the same way ClickHouse is
+(connection config, docker-compose service) but is no longer used by the metrics pipeline -
+Kafka replaced it there. ClickHouse itself is wired into the stack (connection + migration
+mechanism) but not yet storing application data.
 
 ## Quickstart
 
 ### 1. Infra
 
 ```bash
-docker compose up -d postgres mongo redis clickhouse
+docker compose up -d postgres mongo redis kafka clickhouse
 ```
 
 ### 2. Backend
@@ -158,9 +174,9 @@ noise, but treat it as a load *proxy* rather than a real CPU percentage.
 backend/
   apps/api/src/                 NestJS: auth, users, tenants, workspaces, locations, devices, health
   apps/websocket/src/            plain TS: raw `ws` server, /ws/device/{id} + /ws/dashboard/{id}
-  apps/workers/ingestion-worker/  plain TS: Redis subscriber -> MongoDB device_metrics writer
+  apps/workers/ingestion-worker/  plain TS: Kafka consumer -> MongoDB device_metrics writer
   apps/workers/cron-worker/        plain TS: expire pairing sessions, mark stale devices offline
-  packages/database/              postgres (entities+migrations) / mongo / redis / clickhouse
+  packages/database/              postgres (entities+migrations) / mongo / redis / kafka / clickhouse
   packages/auth/                   TokenService, refresh tokens, scoped RBAC permission checks
   packages/common/                 types, constants, config loading, logging
 ```
@@ -190,8 +206,15 @@ desktop/src/
 ## Known MVP shortcuts (documented on purpose)
 
 - **CPU is a JS-thread-load proxy, not a real percentage** - see the table above.
-- **Single Redis pub/sub connection per dashboard socket** - fine for local dev; production
-  would want connection pooling and reconnect/backoff on both device and dashboard sockets.
+- **`apps/websocket` consumes its whole Kafka topic per process instance** - dashboard fan-out has
+  no per-device Kafka subscription (a topic per device would be an unbounded topic-count
+  anti-pattern), so every horizontally-scaled instance sees 100% of the topic's volume regardless
+  of how many dashboards are actually connected to it, filtering in-memory instead. This is the
+  same "broadcast to all subscribers" cost Redis pub/sub already had, not a new regression - see
+  `backend/apps/websocket/README.md`.
+- **Redis is wired but no longer used** - it was the metrics pipeline's transport until Kafka
+  replaced it; the docker-compose service, config, and `packages/database/redis` all remain, same
+  "infra-only" status ClickHouse already has below.
 - **Scoped RBAC is an "initial impl"** - a global role/permission catalog (not per-tenant),
   `PermissionsGuard` resolves scope from routes by a documented convention rather than a fully
   generic resource resolver, and `user_role_assignments.scope_id` is an application-validated
