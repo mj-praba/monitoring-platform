@@ -1,5 +1,5 @@
 import Joi from "joi";
-import { ClickHouseConfig, MongoConfig, PostgresConfig, RedisConfig } from "../types/database-config.types";
+import { ClickHouseConfig, KafkaConfig, MongoConfig, PostgresConfig, RedisConfig } from "../types/database-config.types";
 
 export interface AuthConfig {
   jwtSecret: string;
@@ -18,6 +18,7 @@ export interface AppConfig {
   postgres: PostgresConfig;
   mongo: MongoConfig;
   redis: RedisConfig;
+  kafka: KafkaConfig;
   clickhouse: ClickHouseConfig;
 }
 
@@ -59,6 +60,10 @@ const envSchema = Joi.object({
   REDIS_PASSWORD: Joi.string().allow("").optional(),
   REDIS_DB: Joi.number().min(0).default(0),
   REDIS_SSL: Joi.boolean().default(false),
+
+  KAFKA_BROKERS: Joi.string().required(),
+  KAFKA_CLIENT_ID: Joi.string().default("monitoring-platform"),
+  KAFKA_SSL: Joi.boolean().default(false),
 
   CLICKHOUSE_HOST: Joi.string().required(),
   CLICKHOUSE_PORT: Joi.number().port().required(),
@@ -115,6 +120,11 @@ export function loadAppConfig(): AppConfig {
       password: env.REDIS_PASSWORD || undefined,
       db: env.REDIS_DB,
       ssl: env.REDIS_SSL,
+    },
+    kafka: {
+      brokers: String(env.KAFKA_BROKERS).split(","),
+      clientId: env.KAFKA_CLIENT_ID,
+      ssl: env.KAFKA_SSL,
     },
     clickhouse: {
       host: env.CLICKHOUSE_HOST,

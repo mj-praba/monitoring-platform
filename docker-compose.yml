@@ -40,6 +40,30 @@ services:
       timeout: 5s
       retries: 10
 
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    ports:
+      - "9095:9094"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   clickhouse:
     image: clickhouse/clickhouse-server:24-alpine
     restart: unless-stopped
@@ -89,6 +113,9 @@ services:
       REDIS_PORT: "6379"
       REDIS_DB: "0"
       REDIS_SSL: "false"
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CLIENT_ID: monitoring-platform
+      KAFKA_SSL: "false"
       CLICKHOUSE_HOST: clickhouse
       CLICKHOUSE_PORT: "8123"
       CLICKHOUSE_USER: app
@@ -114,11 +141,12 @@ services:
       - "8002:8002"
     environment: *backend-env
     depends_on:
-      # Needs Postgres (read-only device/permission lookups) and Redis
-      # (pub/sub) — not Mongo or ClickHouse, it never touches either.
+      # Needs Postgres (read-only device/permission lookups) and Kafka
+      # (device-metrics producer + dashboard-fanout consumer) — not Mongo,
+      # ClickHouse, or Redis (no longer used by this process).
       postgres:
         condition: service_healthy
-      redis:
+      kafka:
         condition: service_healthy
       backend-api:
         condition: service_started
@@ -130,11 +158,11 @@ services:
     restart: unless-stopped
     environment: *backend-env
     depends_on:
-      # Mongo (durable writes) and Redis (subscribe) — not Postgres or
-      # ClickHouse.
+      # Mongo (durable writes) and Kafka (device-metrics consumer) — not
+      # Postgres, ClickHouse, or Redis.
       mongo:
         condition: service_healthy
-      redis:
+      kafka:
         condition: service_healthy
 
   backend-cron-worker:
@@ -154,3 +182,4 @@ volumes:
   postgres_data:
   mongo_data:
   clickhouse_data:
+  kafka_data:

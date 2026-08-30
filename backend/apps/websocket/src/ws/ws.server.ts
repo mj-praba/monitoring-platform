@@ -6,8 +6,9 @@ import type { DataSource, Repository } from "typeorm";
 import { hasPermission, loadUserAssignments } from "@app/auth/permissions";
 import type { TokenService } from "@app/auth/token.service";
 import { PERMISSION_CODES } from "@app/common/constants/permissions.constant";
+import { DEVICE_METRICS_TOPIC, KafkaService, deviceMetricsKey } from "@app/database/kafka/kafka.service";
 import { Device, Location, Role, UserRoleAssignment, Workspace } from "@app/database/postgres/entities";
-import { deviceChannel, RedisService } from "@app/database/redis/redis.service";
+import { DashboardRegistry } from "./dashboard-registry";
 import { parseDeviceMetricsMessage } from "./device-metrics.util";
 
 // Deliberately NOT using Nest's @WebSocketGateway() decorator: it's built around a
@@ -19,7 +20,8 @@ import { parseDeviceMetricsMessage } from "./device-metrics.util";
 export interface WsDeps {
   dataSource: DataSource;
   tokenService: TokenService;
-  redisService: RedisService;
+  kafkaService: KafkaService;
+  dashboardRegistry: DashboardRegistry;
 }
 
 export function attachWebSocketServer(server: HttpServer, deps: WsDeps): void {
@@ -124,11 +126,11 @@ function onDeviceSocketConnected(ws: WebSocket, deviceId: string, deps: WsDeps, 
 
     // Publish only — nothing here blocks on or depends on a database write
     // succeeding. Durable persistence into MongoDB happens asynchronously
-    // and independently in apps/workers/ingestion-worker, which subscribes
-    // to this same channel. This is the whole point of the availability
-    // (REST)/consistency (WS) split: the hot delivery path never waits on
-    // a database write.
-    void deps.redisService.publish(deviceChannel(deviceId), JSON.stringify(payload));
+    // and independently in apps/workers/ingestion-worker, which consumes
+    // this same Kafka topic in its own consumer group. This is the whole
+    // point of the availability (REST)/consistency (WS) split: the hot
+    // delivery path never waits on a database write.
+    void deps.kafkaService.publish(DEVICE_METRICS_TOPIC, deviceMetricsKey(deviceId), JSON.stringify(payload));
     void deviceRepo.update({ id: deviceId }, { status: "online", lastSeenAt: now });
   });
 
@@ -137,17 +139,14 @@ function onDeviceSocketConnected(ws: WebSocket, deviceId: string, deps: WsDeps, 
   });
 }
 
+// No per-connection Kafka subscription (a topic per device would be an
+// unbounded topic-count anti-pattern) — main.ts runs one shared consumer for
+// the whole process that dispatches through this registry instead. Opening/
+// closing a dashboard connection is just registry bookkeeping.
 function onDashboardSocketConnected(ws: WebSocket, deviceId: string, deps: WsDeps): void {
-  const channel = deviceChannel(deviceId);
-  const subscriber = deps.redisService.createSubscriber();
-
-  void subscriber.subscribe(channel);
-  subscriber.on("message", (ch: string, message: string) => {
-    if (ch === channel && ws.readyState === WebSocket.OPEN) ws.send(message);
-  });
+  deps.dashboardRegistry.register(deviceId, ws);
 
   ws.on("close", () => {
-    void subscriber.unsubscribe(channel);
-    subscriber.disconnect();
+    deps.dashboardRegistry.deregister(deviceId, ws);
   });
 }

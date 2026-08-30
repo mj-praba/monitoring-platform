@@ -3,7 +3,7 @@
 // web dashboard's "Connect Device" screen, then streams fake-but-realistic
 // battery/memory/disk/CPU samples over the device WebSocket every 2s - exactly
 // like the real Expo app does while it's in the foreground. Useful for
-// verifying the device -> Redis -> dashboard WebSocket path without needing
+// verifying the device -> Kafka -> dashboard WebSocket path without needing
 // hardware. Pure Node.js (native fetch + WebSocket, Node 22+) - no deps.
 //
 // Usage:
